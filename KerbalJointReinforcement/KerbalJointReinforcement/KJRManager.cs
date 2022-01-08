@@ -23,6 +23,7 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using CompoundParts;
+using System.Collections;
 
 namespace KerbalJointReinforcement
 {
@@ -33,6 +34,8 @@ namespace KerbalJointReinforcement
         HashSet<Vessel> vesselOffRails;
         Dictionary<Vessel, List<Joint>> vesselJointStrengthened;
         KJRMultiJointManager multiJointManager;
+
+        private bool isEVAConstructionModeActive = false;
 
         public void Awake()
         {
@@ -49,6 +52,10 @@ namespace KerbalJointReinforcement
             GameEvents.onVesselGoOffRails.Add(OnVesselOffRails);
             GameEvents.onVesselGoOnRails.Add(OnVesselOnRails);
             GameEvents.onVesselDestroy.Add(OnVesselOnRails);
+
+            GameEvents.OnEVAConstructionModePartAttached.Add(OnEVAConstructionModePartAttached);
+            GameEvents.OnEVAConstructionModePartDetached.Add(OnEVAConstructionModePartDetached);
+            GameEvents.OnEVAConstructionMode.Add(OnEVAConstructionMode);
         }
 
         public void OnDestroy()
@@ -58,21 +65,40 @@ namespace KerbalJointReinforcement
             GameEvents.onVesselGoOnRails.Remove(OnVesselOnRails);
             GameEvents.onVesselDestroy.Remove(OnVesselOnRails);
 
+            GameEvents.OnEVAConstructionModePartAttached.Remove(OnEVAConstructionModePartAttached);
+            GameEvents.OnEVAConstructionModePartDetached.Remove(OnEVAConstructionModePartDetached);
+            GameEvents.OnEVAConstructionMode.Remove(OnEVAConstructionMode);
+
             if (InputLockManager.GetControlLock("KJRLoadLock") == ControlTypes.ALL_SHIP_CONTROLS)
                 InputLockManager.RemoveControlLock("KJRLoadLock");
-            updatedVessels = null;
-            vesselOffRails = null;
-            vesselJointStrengthened = null;
 
             multiJointManager.OnDestroy();
-            multiJointManager = null;
+        }
+
+        private void OnEVAConstructionModePartAttached(Vessel v, Part p)
+        {
+            Debug.Log($"[KJR] EVA Attach - Vessel '{v.GetDisplayName()}' - Part '{p.name}'");
+        }
+
+        private void OnEVAConstructionModePartDetached(Vessel v, Part p)
+        {
+            Debug.Log($"[KJR] EVA Detach - Vessel '{v.GetDisplayName()}' - Part '{p.name}'");
+            multiJointManager.OnJointBreak(p);
+        }
+
+        private void OnEVAConstructionMode(bool active)
+        {
+            Debug.Log($"[KJR] EVA Construction - Is active '{active}'");
+            isEVAConstructionModeActive = active;
         }
 
         private void OnVesselWasModified(Vessel v)
         {
-            if ((object)v == null || v.isEVA)
-                return; 
-            
+            Debug.Log($"[KJR] Vessel Modified - Vessel '{v.GetDisplayName()}'");
+
+            if (v == null || v.isEVA)
+                return;
+
             if (KJRJointUtils.settings.debug)
             {
                 StringBuilder debugString = new StringBuilder();
@@ -85,12 +111,20 @@ namespace KerbalJointReinforcement
             }
 
             updatedVessels.Remove(v);
+            RunVesselUpdateJointLater(v);
+        }
+
+        private IEnumerator RunVesselUpdateJointLater(Vessel v)
+        {
+            if (isEVAConstructionModeActive)
+                yield return new WaitForFixedUpdate();
+
             RunVesselJointUpdateFunction(v);
         }
 
         private void OnVesselOffRails(Vessel v)
         {
-            if ((object)v == null || v.isEVA)
+            if (v == null || v.isEVA)
                 return;
 
             bool vesselHasLaunchClamps = false;
@@ -126,7 +160,7 @@ namespace KerbalJointReinforcement
             }
             else
             {
-                for (int i = 0; i<v.Parts.Count; ++i)
+                for (int i = 0; i < v.Parts.Count; ++i)
                 {
                     Part p = v.Parts[i];
 
@@ -239,7 +273,7 @@ namespace KerbalJointReinforcement
         {
             if (FlightGlobals.ready && FlightGlobals.Vessels != null)
             {
-                for(int i = 0; i < updatedVessels.Count; ++i)
+                for (int i = 0; i < updatedVessels.Count; ++i)
                 {
                     Vessel v = updatedVessels[i];
                     if (v == null || !vesselOffRails.Contains(v))
@@ -311,7 +345,7 @@ namespace KerbalJointReinforcement
                     }
                 }
             }
-            
+
 
             jointList = KJRJointUtils.GetJointListFromAttachJoint(p.attachJoint);
             if (jointList == null)
@@ -330,7 +364,7 @@ namespace KerbalJointReinforcement
                 if (j == null)
                     continue;
 
-                String jointType = j.GetType().Name;
+                string jointType = j.GetType().Name;
                 Rigidbody connectedBody = j.connectedBody;
 
                 Part connectedPart = connectedBody.GetComponent<Part>() ?? p.parent;
@@ -344,8 +378,8 @@ namespace KerbalJointReinforcement
                     }
 
                     continue;
-                }                
-                
+                }
+
                 // Check attachment nodes for better orientation data
                 AttachNode attach = p.FindAttachNodeByPart(p.parent);
                 AttachNode p_attach = p.parent.FindAttachNodeByPart(p);
@@ -512,7 +546,7 @@ namespace KerbalJointReinforcement
                     momentOfInertia = area * radius * radius / 4;           //Moment of Inertia of cylinder
                 }
                 else if (p.attachMode == AttachModes.SRF_ATTACH)
-                {                    
+                {
                     // x,z sides, y along main axis
                     Vector3 up1 = KJRJointUtils.GuessUpVector(p);
                     var size1 = KJRJointUtils.CalculateExtents(p, up1);
@@ -788,12 +822,12 @@ namespace KerbalJointReinforcement
 
             List<Part> childPartsToConnect = new List<Part>();
 
-            for(int i = 0; i < v.Parts.Count; ++i)
+            for (int i = 0; i < v.Parts.Count; ++i)
             {
                 Part p = v.Parts[i];
                 if (p.children.Count == 0 && !p.Modules.Contains("LaunchClamp") && KJRJointUtils.MaximumPossiblePartMass(p) > KJRJointUtils.settings.massForAdjustment)
                 {
-                    if(p.rb == null && p.Rigidbody != null)
+                    if (p.rb == null && p.Rigidbody != null)
                     {
                         p = p.RigidBodyPart;
                     }
@@ -804,7 +838,7 @@ namespace KerbalJointReinforcement
 
             Rigidbody rootRb = v.rootPart.Rigidbody;
 
-            for(int i = 0; i < childPartsToConnect.Count; ++i)
+            for (int i = 0; i < childPartsToConnect.Count; ++i)
             {
                 Part p = childPartsToConnect[i];
                 Part linkPart = childPartsToConnect[i + 1 >= childPartsToConnect.Count ? 0 : i + 1];
