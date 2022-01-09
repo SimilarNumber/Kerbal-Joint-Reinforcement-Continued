@@ -36,6 +36,7 @@ namespace KerbalJointReinforcement
         KJRMultiJointManager multiJointManager;
 
         private bool isEVAConstructionModeActive = false;
+        private ulong physicsFrameCount = 0;
 
         public void Awake()
         {
@@ -111,15 +112,19 @@ namespace KerbalJointReinforcement
             }
 
             updatedVessels.Remove(v);
-            RunVesselUpdateJointLater(v);
+            StartCoroutine(RunVesselUpdateJointFunctionWhenSafe(v));
         }
 
-        private IEnumerator RunVesselUpdateJointLater(Vessel v)
+        private IEnumerator RunVesselUpdateJointFunctionWhenSafe(Vessel v)
         {
             if (isEVAConstructionModeActive)
-                yield return new WaitForFixedUpdate();
+            {
+                Debug.Log($"[KJR] Delay Joint Update until EVA Construction is finished - Vessel '{v.GetDisplayName()}'");
+                yield return new WaitUntil(() => !isEVAConstructionModeActive);
+            }
 
-            RunVesselJointUpdateFunction(v);
+            if (!updatedVessels.Contains(v))
+                RunVesselJointUpdateFunction(v);
         }
 
         private void OnVesselOffRails(Vessel v)
@@ -189,7 +194,7 @@ namespace KerbalJointReinforcement
 
         private void OnVesselOnRails(Vessel v)
         {
-            if ((object)v == null)
+            if (v == null)
                 return;
 
             if (updatedVessels.Contains(v))
@@ -212,6 +217,8 @@ namespace KerbalJointReinforcement
 
         private void RunVesselJointUpdateFunction(Vessel v)
         {
+            Debug.Log($"[KJR] Start Joint Update - Vessel '{v.GetDisplayName()}'");
+
             if (KJRJointUtils.settings.debug)
             {
                 Debug.Log("KJR: Processing vessel " + v.id + " (" + v.GetName() + "); root " +
@@ -262,6 +269,8 @@ namespace KerbalJointReinforcement
 
             if (success || !child_parts)
                 updatedVessels.Add(v);
+
+            Debug.Log($"[KJR] Finish Joint Update - Vessel '{v.GetDisplayName()}'");
         }
 
         private bool ValidDecoupler(Part p)
@@ -271,6 +280,12 @@ namespace KerbalJointReinforcement
 
         public void FixedUpdate()
         {
+            physicsFrameCount++;
+            if (isEVAConstructionModeActive)
+            {
+                Debug.Log($"[KJR] Frame {physicsFrameCount}");
+            }
+
             if (FlightGlobals.ready && FlightGlobals.Vessels != null)
             {
                 for (int i = 0; i < updatedVessels.Count; ++i)
@@ -296,6 +311,8 @@ namespace KerbalJointReinforcement
 
         private void UpdatePartJoint(Part p)
         {
+            Debug.Log($"[KJR] Start Update Part Joint - Part '{p.partInfo.name}'");
+
             if (!KJRJointUtils.JointAdjustmentValid(p) || p.rb == null || p.attachJoint == null)
                 return;
 
@@ -309,7 +326,9 @@ namespace KerbalJointReinforcement
 
                 return;
             }
+
             List<ConfigurableJoint> jointList;
+
             if (p.Modules.Contains<CModuleStrut>())
             {
                 CModuleStrut s = p.Modules.GetModule<CModuleStrut>();
@@ -813,6 +832,8 @@ namespace KerbalJointReinforcement
             }
             if (KJRJointUtils.settings.debug)
                 Debug.Log(debugString.ToString());
+
+            Debug.Log($"[KJR] Finish Update Part Joint - Part '{p.partInfo.name}'");
         }
 
         public void MultiPartJointTreeChildren(Vessel v)

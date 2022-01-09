@@ -208,6 +208,9 @@ namespace KerbalJointReinforcement
             if (part == null)
                 return;
 
+            Debug.Log($"[KJR] Start Break Joint - Part '{part.name}'");
+            ulong brokenJointCount = 0;
+
             List<ConfigurableJoint> configJointList;
             if (multiJointDict.TryGetValue(part, out configJointList))
             {
@@ -217,11 +220,14 @@ namespace KerbalJointReinforcement
                     if (joint != null)
                     {
                         GameObject.Destroy(joint);
+                        brokenJointCount++;
                     }
                 }
 
                 multiJointDict.Remove(part);
             }
+
+            Debug.Log($"[KJR] Finish Break Joint - Part '{part.name}' - {brokenJointCount} Joints Broken");
         }
     }
 }
