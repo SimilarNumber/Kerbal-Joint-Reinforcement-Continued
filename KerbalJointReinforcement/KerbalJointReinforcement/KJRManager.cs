@@ -23,6 +23,7 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using CompoundParts;
+using System.Collections;
 
 namespace KerbalJointReinforcement
 {
@@ -33,6 +34,7 @@ namespace KerbalJointReinforcement
         HashSet<Vessel> vesselOffRails;
         Dictionary<Vessel, List<Joint>> vesselJointStrengthened;
         KJRMultiJointManager multiJointManager;
+        bool isEVAConstructionModeActive = false;
 
         public void Awake()
         {
@@ -49,6 +51,8 @@ namespace KerbalJointReinforcement
             GameEvents.onVesselGoOffRails.Add(OnVesselOffRails);
             GameEvents.onVesselGoOnRails.Add(OnVesselOnRails);
             GameEvents.onVesselDestroy.Add(OnVesselOnRails);
+            GameEvents.OnEVAConstructionModePartDetached.Add(OnEVAConstructionModePartDetached);
+            GameEvents.OnEVAConstructionMode.Add(OnEVAConstructionMode);
         }
 
         public void OnDestroy()
@@ -57,6 +61,8 @@ namespace KerbalJointReinforcement
             GameEvents.onVesselGoOffRails.Remove(OnVesselOffRails);
             GameEvents.onVesselGoOnRails.Remove(OnVesselOnRails);
             GameEvents.onVesselDestroy.Remove(OnVesselOnRails);
+            GameEvents.OnEVAConstructionModePartDetached.Remove(OnEVAConstructionModePartDetached);
+            GameEvents.OnEVAConstructionMode.Remove(OnEVAConstructionMode);
 
             if (InputLockManager.GetControlLock("KJRLoadLock") == ControlTypes.ALL_SHIP_CONTROLS)
                 InputLockManager.RemoveControlLock("KJRLoadLock");
@@ -66,6 +72,16 @@ namespace KerbalJointReinforcement
 
             multiJointManager.OnDestroy();
             multiJointManager = null;
+        }
+
+        private void OnEVAConstructionModePartDetached(Vessel v, Part p)
+        {
+            multiJointManager.OnJointBreak(p);
+        }
+
+        private void OnEVAConstructionMode(bool active)
+        {
+            isEVAConstructionModeActive = active;
         }
 
         private void OnVesselWasModified(Vessel v)
@@ -85,7 +101,21 @@ namespace KerbalJointReinforcement
             }
 
             updatedVessels.Remove(v);
-            RunVesselJointUpdateFunction(v);
+            StartCoroutine(RunVesselUpdateJointFunctionWhenSafe(v));
+        }
+
+        private IEnumerator RunVesselUpdateJointFunctionWhenSafe(Vessel v)
+        {
+            if (isEVAConstructionModeActive)
+            {
+                //During EVA Construction things seem to be in a wonky state in regards to physics, 
+                //resulting in issues when RunVesselJointUpdateFunction tries to update the vessel
+                yield return new WaitUntil(() => !isEVAConstructionModeActive);
+            }
+
+            //Try to update the joints only once on a vessel that has changed multiple times during EVA Construction
+            if (!updatedVessels.Contains(v))
+                RunVesselJointUpdateFunction(v);
         }
 
         private void OnVesselOffRails(Vessel v)
